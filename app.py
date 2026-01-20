@@ -13,9 +13,13 @@ def load_data():
     df_b = conn.read(spreadsheet=URL, worksheet="Bets", ttl=60)
     df_u = conn.read(spreadsheet=URL, worksheet="Users", ttl=60)
     
-    # Převod sloupců na správné typy
+    # Převod match_id na text
     df_m['match_id'] = df_m['match_id'].astype(str)
-    df_m['start_time'] = pd.to_datetime(df_m['start_time'])
+    
+    # OPRAVA FORMÁTU DATA: Čte formát 11.2.2026 16:40:00
+    # dayfirst=True zajistí, že se 1.2. nepřečte jako 2. ledna
+    df_m['start_time'] = pd.to_datetime(df_m['start_time'], dayfirst=True, errors='coerce')
+    
     if not df_b.empty:
         df_b['match_id'] = df_b['match_id'].astype(str)
     
@@ -24,7 +28,7 @@ def load_data():
 try:
     conn, df_matches, df_bets, df_users = load_data()
 except Exception as e:
-    st.error(f"Chyba databáze (Zkontroluj sloupce v Sheets): {e}")
+    st.error(f"Chyba databáze: {e}")
     st.stop()
 
 if 'user' not in st.session_state:
@@ -39,7 +43,7 @@ if st.session_state.user:
         st.rerun()
 else:
     u_in = st.sidebar.text_input("Jméno")
-    p_in = st.sidebar.text_input("PIN", type="password")
+    p_in = st.sidebar.text_input("PIN (4 čísla)", type="password")
     if st.sidebar.button("Vstoupit"):
         if u_in and len(p_in) == 4:
             if u_in not in df_users['user_name'].values:
@@ -51,13 +55,13 @@ else:
             st.rerun()
 
 # --- ADMIN SEKCE ---
-if st.sidebar.checkbox("Barman"):
+if st.sidebar.checkbox("Režim Barman"):
     pwd = st.sidebar.text_input("Heslo", type="password")
     if pwd == "hokej2026":
         st.header("⚙️ Admin")
         to_s = df_matches[df_matches['status'] != 'ukončeno']
         if not to_s.empty:
-            m_sel = st.selectbox("Zápas k vyhodnocení:", to_s['team_a'] + " vs " + to_s['team_b'])
+            m_sel = st.selectbox("Zápas:", to_s['team_a'] + " vs " + to_s['team_b'])
             idx = to_s[to_s['team_a'] + " vs " + to_s['team_b'] == m_sel].index[0]
             m_id = str(to_s.loc[idx, 'match_id'])
             c1, c2 = st.columns(2)
@@ -89,28 +93,25 @@ if st.session_state.user:
     t1, t2, t3 = st.tabs(["📝 Tipovat", "🏆 Pořadí", "📅 Výsledky"])
     with t1:
         st.subheader("Nové tipy")
-        # Časová pojistka: nyní - 20 minut (konec 1. třetiny)
         cutoff_time = datetime.now() - timedelta(minutes=20)
         
-        # Zápas musí mít status 'budoucí' A začít před méně než 20 minutami
+        # Filtrování s ohledem na start_time
         op_m = df_matches[
             (df_matches['status'] == 'budoucí') & 
             (df_matches['start_time'] > cutoff_time)
-        ]
+        ].copy()
         
         if not op_m.empty:
             m_opt = op_m['team_a'] + " vs " + op_m['team_b']
-            sel_match = st.selectbox("Zápas:", m_opt)
+            sel_match = st.selectbox("Vyber zápas:", m_opt)
             m_idx = op_m[op_m['team_a'] + " vs " + op_m['team_b'] == sel_match].index[0]
             cid = str(op_m.loc[m_idx, 'match_id'])
             
-            # Kontrola stávajícího tipu
             exist = df_bets[(df_bets['user_name'] == st.session_state.user) & (df_bets['match_id'] == cid)]
-            
             if not exist.empty:
                 st.warning(f"Tvůj tip: {int(exist.iloc[0]['tip_a'])}:{int(exist.iloc[0]['tip_b'])}")
             else:
-                st.info(f"Zápas začíná v: {op_m.loc[m_idx, 'start_time'].strftime('%H:%M')}")
+                st.info(f"Začátek: {op_m.loc[m_idx, 'start_time'].strftime('%d.%m.%Y %H:%M')}")
                 c1, c2 = st.columns(2)
                 ta = c1.number_input(f"Góly {op_m.loc[m_idx, 'team_a']}", 0, 20, 0, key="a")
                 tb = c2.number_input(f"Góly {op_m.loc[m_idx, 'team_b']}", 0, 20, 0, key="b")
@@ -129,7 +130,7 @@ if st.session_state.user:
                     st.success("Tip uložen!")
                     st.rerun()
         else: 
-            st.info("Aktuálně nejsou otevřené žádné zápasy (sázky se uzavírají 20 min po začátku).")
+            st.info("Žádné otevřené zápasy k tipování.")
     
     with t2:
         st.subheader("Tabulka")
@@ -137,6 +138,8 @@ if st.session_state.user:
     
     with t3:
         st.subheader("Výsledky")
-        st.table(df_matches[df_matches['status'] == 'ukončeno'][['team_a', 'result_a', 'result_b', 'team_b']])
-else:
-    st.info("Přihlas se vlevo.")
+        finished = df_matches[df_matches['status'] == 'ukončeno'].copy()
+        if not finished.empty:
+            # Zformátování data pro zobrazení
+            finished['start_time'] = finished['start_time'].dt.strftime('%d.%m. %H:%M')
+            st.table(finished[['start_time
