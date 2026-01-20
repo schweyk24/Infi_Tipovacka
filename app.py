@@ -1,18 +1,27 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
-st.title("🏒 Barová Tipovačka")
+st.set_page_config(page_title="Tipovačka Test")
 
-# Očištěná URL
-URL = "https://docs.google.com/spreadsheets/d/1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU/"
+# Odkaz na tabulku (zkrácený)
+URL = "https://docs.google.com/spreadsheets/d/1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU/edit#gid=0"
 
+# Inicializace připojení
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+st.title("🏒 Připojení k tabulce")
+
 try:
-    # Zkusíme načíst list 'Matches'
-    data = conn.read(spreadsheet=URL, worksheet="Matches")
-    st.success("Připojeno!")
-    st.dataframe(data)
+    # ttl=0 zajistí, že se data nebudou cachovat a načtou se vždy čerstvá
+    df = conn.read(spreadsheet=URL, worksheet="Matches", ttl=0)
+    
+    if df.empty:
+        st.warning("Tabulka je připojená, ale vypadá to, že v listu 'Matches' nejsou žádná data (jen hlavičky?).")
+    else:
+        st.success("Data byla úspěšně načtena!")
+        st.write("Náhled dat z listu Matches:")
+        st.dataframe(df)
+
 except Exception as e:
     st.error(f"Chyba: {e}")
-    st.info("Zkuste v Google Sheets přejmenovat list na 'Matches' nebo v kódu změnit worksheet na 'List1'")
+    st.info("Zkuste v Streamlit Secrets (v nastavení na webu) zkontrolovat, zda máte správně zadanou URL.")
