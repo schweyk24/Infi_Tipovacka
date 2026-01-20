@@ -10,12 +10,13 @@ URL = "https://docs.google.com/spreadsheets/d/1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_
 def load_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
     df_m = conn.read(spreadsheet=URL, worksheet="Matches", ttl=60)
-    df_b = conn.read(spreadsheet=URL, worksheet="Bets", ttl=60)
+    df_b = conn.read(spreadsheet=URL, worksheet="Bets", ttl=10)
     df_u = conn.read(spreadsheet=URL, worksheet="Users", ttl=60)
     
     df_m['match_id'] = df_m['match_id'].astype(str)
-    # Čtení českého formátu data 11.2.2026 16:40:00
     df_m['start_time'] = pd.to_datetime(df_m['start_time'], dayfirst=True, errors='coerce')
+    # Seřazení podle času hned na začátku
+    df_m = df_m.sort_values(by='start_time')
     
     if not df_b.empty:
         df_b['match_id'] = df_b['match_id'].astype(str)
@@ -25,7 +26,7 @@ def load_data():
 try:
     conn, df_matches, df_bets, df_users = load_data()
 except Exception as e:
-    st.error(f"Chyba databáze: {e}")
+    st.error(f"Chyba databáze (Zkontroluj sloupec 'group' a 'start_time'): {e}")
     st.stop()
 
 if 'user' not in st.session_state:
@@ -89,56 +90,71 @@ if st.sidebar.checkbox("Režim Barman"):
 # --- HRÁČI ---
 if st.session_state.user:
     t1, t2, t3 = st.tabs(["📝 Tipovat", "🏆 Pořadí", "📅 Výsledky"])
+    
     with t1:
-        st.subheader("Nové tipy")
-        # Zámek 20 min po začátku
+        st.subheader("Aktuální nabídka zápasů")
         cutoff = datetime.now() - timedelta(minutes=20)
-        op_m = df_matches[(df_matches['status'] == 'budoucí') & (df_matches['start_time'] > cutoff)].copy()
         
-        if not op_m.empty:
-            m_opt = op_m['team_a'] + " vs " + op_m['team_b']
-            sel_match = st.selectbox("Vyber zápas:", m_opt)
-            m_idx = op_m[op_m['team_a'] + " vs " + op_m['team_b'] == sel_match].index[0]
-            cid = str(op_m.loc[m_idx, 'match_id'])
+        # Filtrujeme pouze zápasy k tipování
+        open_m = df_matches[(df_matches['status'] == 'budoucí') & (df_matches['start_time'] > cutoff)].copy()
+        
+        if not open_m.empty:
+            # Získání unikátních skupin seřazených abecedně
+            groups = sorted(open_m['group'].unique())
             
-            exist = df_bets[(df_bets['user_name'] == st.session_state.user) & (df_bets['match_id'] == cid)]
-            if not exist.empty:
-                st.warning(f"Tvůj tip: {int(exist.iloc[0]['tip_a'])}:{int(exist.iloc[0]['tip_b'])}")
-            else:
-                st.info(f"Začátek: {op_m.loc[m_idx, 'start_time'].strftime('%d.%m. %H:%M')}")
-                c1, c2 = st.columns(2)
-                ta = c1.number_input(f"Góly {op_m.loc[m_idx, 'team_a']}", 0, 20, 0, key="a")
-                tb = c2.number_input(f"Góly {op_m.loc[m_idx, 'team_b']}", 0, 20, 0, key="b")
-                if st.button("🚀 Odeslat tip"):
-                    new_b = pd.DataFrame([{
-                        "timestamp": datetime.now().strftime("%d.%m.%Y %H:%M"),
-                        "user_name": st.session_state.user,
-                        "match_id": cid,
-                        "tip_a": int(ta),
-                        "tip_b": int(tb),
-                        "points_earned": 0
-                    }])
-                    up_bets = pd.concat([df_bets, new_b], ignore_index=True)
-                    conn.update(spreadsheet=URL, worksheet="Bets", data=up_bets)
-                    st.cache_data.clear()
-                    st.success("Tip uložen!")
-                    st.rerun()
-        else: 
+            for g in groups:
+                with st.expander(f"Skupina {g}", expanded=True):
+                    group_matches = open_m[open_m['group'] == g]
+                    
+                    for _, m in group_matches.iterrows():
+                        cid = str(m['match_id'])
+                        match_label = f"{m['team_a']} vs {m['team_b']} ({m['start_time'].strftime('%d.%m. %H:%M')})"
+                        
+                        # Kontrola, zda uživatel již tipoval
+                        user_bet = df_bets[(df_bets['user_name'] == st.session_state.user) & (df_bets['match_id'] == cid)]
+                        
+                        if not user_bet.empty:
+                            # Již vsazeno - barevné info
+                            st.success(f"✅ **{match_label}** | Tvůj tip: **{int(user_bet.iloc[0]['tip_a'])}:{int(user_bet.iloc[0]['tip_b'])}**")
+                        else:
+                            # Nevsázeno - formulář pro sázku
+                            col_txt, col_btn = st.columns([3, 1])
+                            col_txt.write(f"⬜ {match_label}")
+                            if col_btn.button("Vsadit", key=f"btn_{cid}"):
+                                st.session_state[f"betting_{cid}"] = True
+                            
+                            # Pokud bylo kliknuto na "Vsadit", ukáže se formulář pod tím
+                            if st.session_state.get(f"betting_{cid}"):
+                                with st.form(key=f"form_{cid}"):
+                                    c1, c2 = st.columns(2)
+                                    ta = c1.number_input(f"Góly {m['team_a']}", 0, 20, 0, key=f"ta_{cid}")
+                                    tb = c2.number_input(f"Góly {m['team_b']}", 0, 20, 0, key=f"tb_{cid}")
+                                    if st.form_submit_button("Potvrdit tip"):
+                                        new_row = pd.DataFrame([{
+                                            "timestamp": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                                            "user_name": st.session_state.user,
+                                            "match_id": cid,
+                                            "tip_a": int(ta),
+                                            "tip_b": int(tb),
+                                            "points_earned": 0
+                                        }])
+                                        conn.update(spreadsheet=URL, worksheet="Bets", data=pd.concat([df_bets, new_row], ignore_index=True))
+                                        st.cache_data.clear()
+                                        st.rerun()
+        else:
             st.info("Žádné otevřené zápasy k tipování.")
-    
+
     with t2:
-        st.subheader("Tabulka")
-        st.dataframe(df_users[['user_name', 'total_points']].sort_values('total_points', ascending=False), hide_index=True)
-    
+        st.subheader("Tabulka šampionů")
+        st.dataframe(df_users[['user_name', 'total_points']].sort_values('total_points', ascending=False), hide_index=True, use_container_width=True)
+
     with t3:
-        st.subheader("Výsledky")
+        st.subheader("Odehrané zápasy")
         finished = df_matches[df_matches['status'] == 'ukončeno'].copy()
         if not finished.empty:
             finished['start_time'] = finished['start_time'].dt.strftime('%d.%m. %H:%M')
-            # Rozděleno pro jistotu na více řádků
-            cols = ['start_time', 'team_a', 'result_a', 'result_b', 'team_b']
-            st.table(finished[cols])
+            st.table(finished[['group', 'start_time', 'team_a', 'result_a', 'result_b', 'team_b']])
         else:
             st.write("Zatím žádné výsledky.")
 else:
-    st.info("Přihlas se vlevo.")
+    st.info("Přihlas se vlevo pro tipování.")
