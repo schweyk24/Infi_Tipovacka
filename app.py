@@ -15,7 +15,6 @@ def load_data():
     
     df_m['match_id'] = df_m['match_id'].astype(str)
     df_m['start_time'] = pd.to_datetime(df_m['start_time'], dayfirst=True, errors='coerce')
-    # Hlavní řazení podle času
     df_m = df_m.sort_values(by='start_time')
     
     if not df_b.empty:
@@ -52,39 +51,67 @@ else:
             st.session_state.user = u_in
             st.rerun()
 
-# --- ADMIN ---
+# --- ADMIN SEKCE ---
 if st.sidebar.checkbox("Režim Barman"):
     pwd = st.sidebar.text_input("Heslo", type="password")
     if pwd == "hokej2026":
-        st.header("⚙️ Admin")
-        to_s = df_matches[df_matches['status'] != 'ukončeno']
-        if not to_s.empty:
-            m_list = to_s['team_a'] + " vs " + to_s['team_b']
-            m_sel = st.selectbox("Zápas:", m_list)
-            idx = to_s[to_s['team_a'] + " vs " + to_s['team_b'] == m_sel].index[0]
-            m_id = str(to_s.loc[idx, 'match_id'])
-            c1, c2 = st.columns(2)
-            r_a = c1.number_input(f"Góly {to_s.loc[idx, 'team_a']}", min_value=0)
-            r_b = c2.number_input(f"Góly {to_s.loc[idx, 'team_b']}", min_value=0)
-            if st.button("✅ Vyhodnotit"):
-                def calc(ta, tb, ra, rb):
-                    if ta == ra and tb == rb: return 5
-                    if (ra-rb) == (ta-tb): return 3
-                    if (ra>rb and ta>tb) or (ra<rb and ta<tb): return 2
-                    return 0
-                if not df_bets.empty:
-                    df_bets['points_earned'] = df_bets.apply(
-                        lambda x: calc(x['tip_a'], x['tip_b'], r_a, r_b) if x['match_id'] == m_id else x['points_earned'], axis=1
-                    )
-                df_matches.loc[df_matches['match_id'] == m_id, ['result_a', 'result_b', 'status']] = [r_a, r_b, 'ukončeno']
-                nt = df_bets.groupby('user_name')['points_earned'].sum().reset_index()
-                df_users = df_users.drop(columns=['total_points']).merge(nt, on='user_name', how='left').fillna(0)
-                df_users.rename(columns={'points_earned': 'total_points'}, inplace=True)
-                conn.update(spreadsheet=URL, worksheet="Bets", data=df_bets)
-                conn.update(spreadsheet=URL, worksheet="Matches", data=df_matches)
-                conn.update(spreadsheet=URL, worksheet="Users", data=df_users)
-                st.cache_data.clear()
-                st.rerun()
+        st.header("⚙️ Admin - Vyhodnocení zápasů")
+        # Barman vidí zápasy, které ještě nejsou ukončeny
+        to_score = df_matches[df_matches['status'] != 'ukončeno'].copy()
+        
+        if not to_score.empty:
+            to_score['date_only'] = to_score['start_time'].dt.strftime('%d.%m.%Y')
+            admin_dates = to_score['date_only'].unique()
+            
+            for d in admin_dates:
+                with st.expander(f"📅 Zápasy {d}", expanded=True):
+                    day_m = to_score[to_score['date_only'] == d]
+                    for _, m in day_m.iterrows():
+                        mid = str(m['match_id'])
+                        m_label = f"[{m['group']}] {m['start_time'].strftime('%H:%M')} | {m['team_a']} vs {m['team_b']}"
+                        
+                        col_info, col_btn = st.columns([3, 1])
+                        col_info.write(f"🏒 {m_label}")
+                        if col_btn.button("Zadat výsledek", key=f"score_btn_{mid}"):
+                            st.session_state[f"scoring_{mid}"] = True
+                        
+                        if st.session_state.get(f"scoring_{mid}"):
+                            with st.form(key=f"form_admin_{mid}"):
+                                c1, c2 = st.columns(2)
+                                res_a = c1.number_input(f"{m['team_a']}", min_value=0, step=1, key=f"res_a_{mid}")
+                                res_b = c2.number_input(f"{m['team_b']}", min_value=0, step=1, key=f"res_b_{mid}")
+                                
+                                if st.form_submit_button("Uložit a připsat body"):
+                                    def calc(ta, tb, ra, rb):
+                                        if ta == ra and tb == rb: return 5
+                                        if (ra-rb) == (ta-tb): return 3
+                                        if (ra>rb and ta>tb) or (ra<rb and ta<tb): return 2
+                                        return 0
+                                    
+                                    # Update sázek
+                                    if not df_bets.empty:
+                                        df_bets['points_earned'] = df_bets.apply(
+                                            lambda x: calc(x['tip_a'], x['tip_b'], res_a, res_b) if x['match_id'] == mid else x['points_earned'], axis=1
+                                        )
+                                    
+                                    # Update zápasu
+                                    df_matches.loc[df_matches['match_id'] == mid, ['result_a', 'result_b', 'status']] = [res_a, res_b, 'ukončeno']
+                                    
+                                    # Update uživatelů
+                                    nt = df_bets.groupby('user_name')['points_earned'].sum().reset_index()
+                                    df_users = df_users.drop(columns=['total_points']).merge(nt, on='user_name', how='left').fillna(0)
+                                    df_users.rename(columns={'points_earned': 'total_points'}, inplace=True)
+                                    
+                                    # Zápis do Sheets
+                                    conn.update(spreadsheet=URL, worksheet="Bets", data=df_bets)
+                                    conn.update(spreadsheet=URL, worksheet="Matches", data=df_matches)
+                                    conn.update(spreadsheet=URL, worksheet="Users", data=df_users)
+                                    
+                                    st.cache_data.clear()
+                                    st.success(f"Zápas {m['team_a']} vs {m['team_b']} vyhodnocen!")
+                                    st.rerun()
+        else:
+            st.info("Všechny zápasy jsou vyhodnoceny.")
         st.stop()
 
 # --- HRÁČI ---
@@ -97,20 +124,16 @@ if st.session_state.user:
         open_m = df_matches[(df_matches['status'] == 'budoucí') & (df_matches['start_time'] > cutoff)].copy()
         
         if not open_m.empty:
-            # Vytvoření sloupce pouze pro datum pro seskupení
             open_m['date_only'] = open_m['start_time'].dt.strftime('%d.%m.%Y')
             unique_dates = open_m['date_only'].unique()
             
             for d in unique_dates:
                 with st.expander(f"📅 Zápasy {d}", expanded=True):
                     day_matches = open_m[open_m['date_only'] == d]
-                    
                     for _, m in day_matches.iterrows():
                         cid = str(m['match_id'])
                         time_str = m['start_time'].strftime('%H:%M')
-                        # Název zápasu včetně skupiny a času
                         match_label = f"[{m['group']}] {time_str} | {m['team_a']} vs {m['team_b']}"
-                        
                         user_bet = df_bets[(df_bets['user_name'] == st.session_state.user) & (df_bets['match_id'] == cid)]
                         
                         if not user_bet.empty:
