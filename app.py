@@ -8,7 +8,7 @@ st.title("🏒 Tipovačka: Infinity Bar")
 
 # --- PROPOJENÍ S GOOGLE SHEETS ---
 # URL vaší tabulky (vložte ji mezi uvozovky níže)
-URL = "https://docs.google.com/spreadsheets/d/1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU/edit?usp=sharing"
+URL = "https://docs.google.com/spreadsheets/d/1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU"
 
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
