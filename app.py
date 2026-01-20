@@ -33,6 +33,35 @@ user_name = st.sidebar.text_input("Tvoje přezdívka (např. Štamgast_Franta)")
 user_pin = st.sidebar.text_input("Tvůj PIN (4 čísla)", type="password")
 
 if user_name and user_pin:
+    st.header("📝 Podat tip")
+    
+    # Filtrace zápasů, které jsou "budoucí"
+    future_matches = df[df['status'] == 'budoucí']
+    
+    if not future_matches.empty:
+        match_to_tip = st.selectbox("Vyber zápas:", future_matches['team_a'] + " vs " + future_matches['team_b'])
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            score_a = st.number_input("Góly Domácí", min_value=0, step=1, key="a")
+        with col2:
+            score_b = st.number_input("Góly Hosté", min_value=0, step=1, key="b")
+            
+        if st.button("Odeslat tip"):
+            # Zde vytvoříme řádek pro uložení
+            new_bet = {
+                "user": user_name,
+                "match": match_to_tip,
+                "tip": f"{score_a}:{score_b}",
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            st.balloons()
+            st.success(f"Tip na zápas {match_to_tip} uložen! ({score_a}:{score_b})")
+            # SEM vložíme kód pro zápis do Google Sheets
+    else:
+        st.info("Momentálně nejsou k dispozici žádné zápasy k tipování.")
+
+if user_name and user_pin:
     st.sidebar.success(f"Přihlášen jako: {user_name}")
 else:
     st.sidebar.warning("Pro tipování se prosím identifikuj vlevo.")
