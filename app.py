@@ -26,3 +26,13 @@ try:
 except Exception as e:
     st.error(f"❌ Chyba: {e}")
     st.write("Zkuste v Google Sheets: Soubor -> Sdílet -> Publikovat na web")
+
+# --- PŘIHLÁŠENÍ ---
+st.sidebar.header("👤 Přihlášení hráče")
+user_name = st.sidebar.text_input("Tvoje přezdívka (např. Štamgast_Franta)")
+user_pin = st.sidebar.text_input("Tvůj PIN (4 čísla)", type="password")
+
+if user_name and user_pin:
+    st.sidebar.success(f"Přihlášen jako: {user_name}")
+else:
+    st.sidebar.warning("Pro tipování se prosím identifikuj vlevo.")
