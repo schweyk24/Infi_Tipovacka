@@ -4,7 +4,7 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="Tipovačka Test")
 
 # Odkaz na tabulku (zkrácený)
-URL = "https://docs.google.com/spreadsheets/d/1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU/edit#gid=0"
+URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRsYyYfKaVPBHe6FzwS_L6HgG-uN8YIHpqfkn7eUQ7HqpN4n43Ufpx_ZQ_Zl7re2oWTwl9Zeuuhgtbt/pubhtml"
 
 # Inicializace připojení
 conn = st.connection("gsheets", type=GSheetsConnection)
