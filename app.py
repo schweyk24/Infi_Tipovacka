@@ -60,4 +60,5 @@ if admin_mode:
             m_id = str(to_score.loc[m_idx, 'match_id'])
             
             c1, c2 = st.columns(2)
-            res_a = c1.number_input(f"Skóre {to_score.loc[m_idx, 'team_a']}", min_value=0, step=1
+            res_a = c1.number_input(f"Skóre {to_score.loc[m_idx, 'team_a']}", min_value=0, step=1)
+            res_b = c2.number_input(f"Skóre {to_score.loc[m_idx, 'team_b']}", min_value=0, step=1)
