@@ -131,3 +131,13 @@ if user and pin:
 
 else:
     st.info("Přihlas se vlevo pro tipování.")
+
+with tab2:
+    st.subheader("Aktuální pořadí v baru")
+    # Agregace bodů podle uživatele
+    leaderboard = df_bets.groupby('user_name')['points_earned'].sum().reset_index()
+    leaderboard.columns = ['Hráč', 'Celkem Bodů']
+    leaderboard = leaderboard.sort_values(by='Celkem Bodů', ascending=False)
+    
+    # Zobrazení tabulky
+    st.table(leaderboard.assign(Pořadí=range(1, len(leaderboard) + 1)).set_index('Pořadí'))
