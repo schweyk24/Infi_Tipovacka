@@ -27,6 +27,58 @@ if st.sidebar.checkbox("Jsem barman"):
         # Sem brzy přidáme logiku vyhodnocení
         st.stop() # Zastaví vykonávání zbytku kódu pro admina
 
+# --- ADMINISTRACE (vložit do bloku 'if admin_pass == "hokej2026":') ---
+st.header("⚙️ Administrace a Vyhodnocení")
+
+# Vybereme zápas, který chceme vyhodnotit
+matches_to_score = df_matches[df_matches['status'] == 'budoucí'] # Nebo změňte na 'probíhá'
+
+if not matches_to_score.empty:
+    selected_match_admin = st.selectbox("Vyhodnotit zápas:", matches_to_score['team_a'] + " vs " + matches_to_score['team_b'])
+    
+    # Získání ID a týmů
+    idx_a = matches_to_score[matches_to_score['team_a'] + " vs " + matches_to_score['team_b'] == selected_match_admin].index[0]
+    m_id_admin = str(matches_to_score.loc[idx_a, 'match_id'])
+    
+    col1, col2 = st.columns(2)
+    res_a = col1.number_input(f"Konečné skóre {matches_to_score.loc[idx_a, 'team_a']}", min_value=0, step=1)
+    res_b = col2.number_input(f"Konečné skóre {matches_to_score.loc[idx_a, 'team_b']}", min_value=0, step=1)
+
+    if st.button("✅ Uložit výsledek a přidělit body"):
+        # 1. Funkce pro výpočet bodů
+        def calculate_points(tip_a, tip_b, real_a, real_b):
+            if tip_a == real_a and tip_b == real_b: return 5  # Přesný výsledek
+            
+            real_diff = real_a - real_b
+            tip_diff = tip_a - tip_b
+            
+            # Shoda vítěze a rozdílu (nebo remíza)
+            if (real_diff > 0 and tip_diff > 0 and real_diff == tip_diff) or \
+               (real_diff < 0 and tip_diff < 0 and real_diff == tip_diff) or \
+               (real_diff == 0 and tip_diff == 0):
+                return 3
+            
+            # Jen vítěz
+            if (real_diff > 0 and tip_diff > 0) or (real_diff < 0 and tip_diff < 0):
+                return 2
+            
+            return 0
+
+        # 2. Update listu Bets
+        df_bets.loc[df_bets['match_id'] == m_id_admin, 'points_earned'] = df_bets.apply(
+            lambda x: calculate_points(x['tip_a'], x['tip_b'], res_a, res_b) if x['match_id'] == m_id_admin else x['points_earned'], axis=1
+        )
+        
+        # 3. Update listu Matches (nastavíme výsledek a status 'ukončeno')
+        df_matches.loc[df_matches['match_id'] == int(m_id_admin), ['result_a', 'result_b', 'status']] = [res_a, res_b, 'ukončeno']
+        
+        # 4. Zápis do Sheets
+        conn.update(worksheet="Bets", data=df_bets)
+        conn.update(worksheet="Matches", data=df_matches)
+        
+        st.success(f"Zápas {selected_match_admin} vyhodnocen! Body byly připsány.")
+        st.rerun()
+
 # --- HLAVNÍ ČÁST PRO HRÁČE ---
 if user and pin:
     tab1, tab2 = st.tabs(["📝 Tipovat", "🏆 Pořadí"])
