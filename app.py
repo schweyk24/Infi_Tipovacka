@@ -1,27 +1,28 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
+import pandas as pd
 
-st.set_page_config(page_title="Tipovačka Test")
+st.set_page_config(page_title="Hokejová Tipovačka", layout="centered")
+st.title("🏒 Barová Tipovačka")
 
-# Odkaz na tabulku (zkrácený)
-URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRsYyYfKaVPBHe6FzwS_L6HgG-uN8YIHpqfkn7eUQ7HqpN4n43Ufpx_ZQ_Zl7re2oWTwl9Zeuuhgtbt/pubhtml"
+# Toto je váš odkaz upravený tak, aby z něj šlo přímo číst (export jako CSV)
+# To ID je z vašeho odkazu: 1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU
+SHEET_ID = "1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU"
+SHEET_NAME = "Matches"
+URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={SHEET_NAME}"
 
-# Inicializace připojení
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-st.title("🏒 Připojení k tabulce")
+st.info("Pokouším se načíst data z Google Sheets...")
 
 try:
-    # ttl=0 zajistí, že se data nebudou cachovat a načtou se vždy čerstvá
-    df = conn.read(spreadsheet=URL, worksheet="Matches", ttl=0)
+    # Přímé načtení přes Pandas - nejstabilnější metoda pro čtení veřejných tabulek
+    df = pd.read_csv(URL)
     
-    if df.empty:
-        st.warning("Tabulka je připojená, ale vypadá to, že v listu 'Matches' nejsou žádná data (jen hlavičky?).")
-    else:
-        st.success("Data byla úspěšně načtena!")
-        st.write("Náhled dat z listu Matches:")
+    if len(df) > 0:
+        st.success("✅ Spojení navázáno! Tabulka načtena.")
+        st.write("Aktuální zápasy v systému:")
         st.dataframe(df)
+    else:
+        st.warning("Tabulka byla nalezena, ale list 'Matches' neobsahuje žádná data pod hlavičkou.")
 
 except Exception as e:
-    st.error(f"Chyba: {e}")
-    st.info("Zkuste v Streamlit Secrets (v nastavení na webu) zkontrolovat, zda máte správně zadanou URL.")
+    st.error(f"❌ Chyba: {e}")
+    st.write("Zkuste v Google Sheets: Soubor -> Sdílet -> Publikovat na web")
