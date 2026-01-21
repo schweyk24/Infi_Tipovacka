@@ -3,26 +3,37 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta
 
-# --- KONFIGURACE ---
-st.set_page_config(page_title="Hokejová Tipovačka ZOH 2026", layout="centered")
+# --- KONFIGURÁCIA ---
+st.set_page_config(page_title="Infi Tipovačka 2026", layout="centered")
+
+# --- ODKAZ NA LOGO (RAW) ---
+LOGO_URL = "https://raw.githubusercontent.com/schweyk24/Infi_Tipovacka/main/infi_logo_noBG.png"
 
 # --- GRAFIKA (CSS) ---
-st.markdown("""
+st.markdown(f"""
     <style>
-    .stApp { background-color: #0e1117; }
-    .stButton>button { width: 100%; border-radius: 8px; font-weight: bold; background-color: #ff4b4b; color: white; }
-    .stExpander { border: 1px solid #31333f; border-radius: 10px; background-color: #161b22; }
-    h1, h2, h3 { color: #ffffff !important; }
+    .stApp {{ background-color: #0e1117; }}
+    .stButton>button {{ 
+        width: 100%; 
+        border-radius: 8px; 
+        font-weight: bold; 
+        background-color: #e63946; /* Červená ladiaca k logu */
+        color: white; 
+        border: none;
+    }}
+    .stExpander {{ border: 1px solid #31333f; border-radius: 10px; background-color: #161b22; }}
+    h1, h2, h3 {{ color: #ffffff !important; }}
+    /* Úprava tabuľky žebříčku */
+    [data-testid="stTable"] {{ background-color: #161b22; border-radius: 10px; }}
     </style>
     """, unsafe_allow_html=True)
 
 URL = "https://docs.google.com/spreadsheets/d/1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU/"
 
-# --- FUNKCE PRO OBRÁZKOVÉ VLAJKY ---
+# --- FUNKCIA PRE OBRÁZKOVÉ VLAJKY ---
 def get_flag_url(team_name):
     team = str(team_name).strip().upper()
-    # Databáze vlajek (třípísmenné kódy pro spolehlivost)
-    codes = {
+    codes = {{
         "CZE": "cz", "ČESKO": "cz", "SVK": "sk", "SLOVENSKO": "sk",
         "CAN": "ca", "KANADA": "ca", "USA": "us", "FIN": "fi", 
         "FINSKO": "fi", "SWE": "se", "ŠVÉDSKO": "se", "SUI": "ch", 
@@ -31,9 +42,9 @@ def get_flag_url(team_name):
         "DÁNSKO": "dk", "AUT": "at", "RAKOUSKO": "at", "FRA": "fr", 
         "FRANCIE": "fr", "KAZ": "kz", "KAZACHSTÁN": "kz", "ITA": "it", 
         "ITÁLIE": "it", "SLO": "si", "SLOVINSKO": "si", "HUN": "hu"
-    }
-    code = codes.get(team, "un") # "un" jako hokejový puk/univerzální
-    return f"https://flagcdn.com/w40/{code}.png"
+    }}
+    code = codes.get(team, "un")
+    return f"https://flagcdn.com/w40/{{code}}.png"
 
 def load_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -49,87 +60,93 @@ def load_data():
 try:
     conn, df_matches, df_bets, df_users = load_data()
 except Exception as e:
-    st.error(f"Chyba: {e}"); st.stop()
+    st.error(f"Chyba pripojenia: {{e}}"); st.stop()
 
 if 'user' not in st.session_state: st.session_state.user = None
 
-# --- SIDEBAR (Zkráceno pro přehlednost) ---
+# --- SIDEBAR (S LOGOM) ---
 with st.sidebar:
-    st.title("🏒 Barová Tipovačka")
+    st.image(LOGO_URL, use_container_width=True)
+    st.title("Infi Tipovačka")
+    st.divider()
+    
     if st.session_state.user:
-        st.success(f"Uživatel: {st.session_state.user}")
-        if st.button("Odhlásit se"):
+        st.success(f"Hráč: **{{st.session_state.user}}**")
+        u_row = df_users[df_users['user_name'] == st.session_state.user]
+        pts = int(u_row['total_points'].values[0]) if not u_row.empty else 0
+        st.metric("Tvoje body", f"{{pts}} pts")
+        if st.button("Odhlásiť sa"):
             st.session_state.user = None
             st.rerun()
     else:
         u_in = st.text_input("Přezdívka")
-        p_in = st.text_input("PIN", type="password")
-        if st.button("Vstoupit"):
+        p_in = st.text_input("PIN (4 čísla)", type="password")
+        if st.button("Vstúpiť do hry"):
             if u_in and p_in:
                 if u_in not in df_users['user_name'].values:
-                    new_u = pd.DataFrame([{"user_name": u_in, "pin": p_in, "total_points": 0}])
+                    new_u = pd.DataFrame([{{ "user_name": u_in, "pin": p_in, "total_points": 0 }}])
                     conn.update(spreadsheet=URL, worksheet="Users", data=pd.concat([df_users, new_u], ignore_index=True))
                 st.session_state.user = u_in; st.rerun()
 
-# --- HLAVNÍ OBSAH ---
+# --- HLAVNÝ OBSAH ---
 if st.session_state.user:
-    t1, t2, t3 = st.tabs(["📝 TIPOVAT", "🏆 ŽEBŘÍČEK", "📅 VÝSLEDKY"])
+    t1, t2, t3 = st.tabs(["📝 TIPOVANIE", "🏆 REBRÍČEK", "📅 VÝSLEDKY"])
     
     with t1:
         now = datetime.now()
         open_m = df_matches[(df_matches['status'] == 'budoucí') & (df_matches['internal_datetime'] > (now - timedelta(minutes=20)))]
         if not open_m.empty:
             for d in open_m['date'].unique():
-                with st.expander(f"📅 Zápasy {d}", expanded=True):
+                with st.expander(f"📅 Zápasy {{d}}", expanded=True):
                     day_m = open_m[open_m['date'] == d]
                     for _, m in day_m.iterrows():
                         cid = str(m['match_id'])
                         user_bet = df_bets[(df_bets['user_name'] == st.session_state.user) & (df_bets['match_id'] == cid)]
                         
-                        # ZOBRAZENÍ ZÁPASU S OBRÁZKY
-                        col_img1, col_name1, col_vs, col_name2, col_img2 = st.columns([1, 3, 1, 3, 1])
-                        col_img1.image(get_flag_url(m['team_a']), width=30)
-                        col_name1.write(f"**{m['team_a']}**")
-                        col_vs.write("vs")
-                        col_name2.write(f"**{m['team_b']}**")
-                        col_img2.image(get_flag_url(m['team_b']), width=30)
+                        col1, col2, col3, col4, col5 = st.columns([1, 3, 1, 3, 1])
+                        col1.image(get_flag_url(m['team_a']), width=35)
+                        col2.write(f"**{{m['team_a']}}**")
+                        col3.write("vs")
+                        col4.write(f"**{{m['team_b']}}**")
+                        col5.image(get_flag_url(m['team_b']), width=35)
                         
-                        st.caption(f"⏰ {m['time']} | Skupina {m['group']}")
+                        st.caption(f"⏰ {{m['time']}} | Skupina {{m['group']}}")
                         
                         if not user_bet.empty:
-                            st.info(f"Tvůj tip: {int(user_bet.iloc[0]['tip_a'])}:{int(user_bet.iloc[0]['tip_b'])}")
+                            st.info(f"Tvoj tip: {{int(user_bet.iloc[0]['tip_a'])}}:{{int(user_bet.iloc[0]['tip_b'])}}")
                         else:
-                            if st.button(f"Tipnout", key=f"b_{cid}"):
-                                st.session_state[f"bet_{cid}"] = True
+                            if st.button(f"Tipnúť", key=f"b_{{cid}}"):
+                                st.session_state[f"bet_{{cid}}"] = True
                         
-                        if st.session_state.get(f"bet_{cid}") and user_bet.empty:
-                            with st.form(key=f"f_{cid}"):
+                        if st.session_state.get(f"bet_{{cid}}") and user_bet.empty:
+                            with st.form(key=f"f_{{cid}}"):
                                 c1, c2 = st.columns(2)
-                                ta = c1.number_input(f"{m['team_a']}", 0, 20)
-                                tb = c2.number_input(f"{m['team_b']}", 0, 20)
-                                if st.form_submit_button("Potvrdit"):
-                                    new_b = pd.DataFrame([{"timestamp": now.strftime("%d.%m. %H:%M"), "user_name": st.session_state.user, "match_id": cid, "tip_a": int(ta), "tip_b": int(tb), "points_earned": 0}])
+                                ta = c1.number_input(f"{{m['team_a']}}", 0, 20)
+                                tb = c2.number_input(f"{{m['team_b']}}", 0, 20)
+                                if st.form_submit_button("Potvrdiť"):
+                                    new_b = pd.DataFrame([{{ "timestamp": now.strftime("%d.%m. %H:%M"), "user_name": st.session_state.user, "match_id": cid, "tip_a": int(ta), "tip_b": int(tb), "points_earned": 0 }}])
                                     conn.update(spreadsheet=URL, worksheet="Bets", data=pd.concat([df_bets, new_b], ignore_index=True))
-                                    st.cache_data.clear(); st.session_state[f"bet_{cid}"] = False; st.rerun()
+                                    st.cache_data.clear(); st.session_state[f"bet_{{cid}}"] = False; st.rerun()
                         st.divider()
-        else: st.info("Žádné zápasy k tipování.")
+        else: st.info("Momentálne nie sú žiadne zápasy na tipovanie.")
 
     with t2:
-        st.subheader("🏆 Leaderboard")
+        st.subheader("🏆 Aktuálne poradie")
         lead = df_users[['user_name', 'total_points']].sort_values('total_points', ascending=False).reset_index(drop=True)
         lead.index += 1; st.table(lead)
 
     with t3:
-        st.subheader("📅 Výsledky")
+        st.subheader("📅 Posledné výsledky")
         fin = df_matches[df_matches['status'] == 'ukončeno'].copy()
         if not fin.empty:
             for _, r in fin.iterrows():
                 c1, c2, c3, c4, c5 = st.columns([1, 2, 2, 2, 1])
-                c1.image(get_flag_url(r['team_a']), width=25)
+                c1.image(get_flag_url(r['team_a']), width=30)
                 c2.write(r['team_a'])
-                c3.write(f"**{int(r['result_a'])} : {int(r['result_b'])}**")
+                c3.write(f"**{{int(r['result_a'])}} : {{int(r['result_b'])}}**")
                 c4.write(r['team_b'])
-                c5.image(get_flag_url(r['team_b']), width=25)
-        else: st.write("Zatím žádné výsledky.")
+                c5.image(get_flag_url(r['team_b']), width=30)
+                st.divider()
+        else: st.write("Zatiaľ žiadne výsledky.")
 else:
-    st.info("👈 Přihlas se vlevo.")
+    st.info("👈 Pre tipovanie sa prihlás v bočnom paneli.")
