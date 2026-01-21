@@ -46,11 +46,14 @@ def load_data():
     df_m.columns = [str(c).lower().strip() for c in df_m.columns]
     df_m['match_id'] = df_m['match_id'].astype(str)
     df_m['internal_datetime'] = pd.to_datetime(df_m['date'].astype(str) + ' ' + df_m['time'].astype(str), dayfirst=True)
+    
     if not df_u.empty:
-        for col in ['user_name', 'pin', 'phone_last']:
-            if col in df_u.columns:
-                df_u[col] = df_u[col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        # ZDE JE OPRAVA: Převedeme na string a u phone_last doplníme nuly zleva na 3 místa
+        df_u['user_name'] = df_u['user_name'].astype(str).str.strip()
+        df_u['pin'] = df_u['pin'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        df_u['phone_last'] = df_u['phone_last'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(3)
         df_u['total_points'] = pd.to_numeric(df_u['total_points'], errors='coerce').fillna(0).astype(int)
+    
     if not df_b.empty:
         df_b['user_name'] = df_b['user_name'].astype(str).str.strip()
         df_b['match_id'] = df_b['match_id'].astype(str)
@@ -65,10 +68,9 @@ if 'admin' not in st.session_state: st.session_state.admin = False
 # --- LOGO ---
 st.markdown(f'<div class="logo-container"><img src="{LOGO_URL}" width="220"></div>', unsafe_allow_html=True)
 
-# --- 1. ÚVODNÍ STRÁNKA (Nepřihlášený uživatel) ---
+# --- 1. ÚVODNÍ STRÁNKA ---
 if not st.session_state.user and not st.session_state.admin:
     col_info, col_lead = st.columns([1, 1])
-    
     with col_info:
         st.markdown("""
         <div class="info-box">
@@ -78,7 +80,6 @@ if not st.session_state.user and not st.session_state.admin:
             🏆 <b>2 body</b> - uhodnutý vítěz</p>
         </div>
         """, unsafe_allow_html=True)
-
     with col_lead:
         st.markdown("<h4>🏆 TOP 5 Hráčů</h4>", unsafe_allow_html=True)
         if not df_u.empty:
@@ -86,11 +87,8 @@ if not st.session_state.user and not st.session_state.admin:
             st.dataframe(top_5[['user_name', 'total_points']].rename(columns={'user_name':'Přezdívka', 'total_points':'Body'}), hide_index=True, use_container_width=True)
         else:
             st.info("Zatím nikdo netipoval.")
-
     st.write("---")
-
     t_log, t_reg, t_for, t_adm = st.tabs(["🔑 Přihlášení", "📝 Registrace", "🆘 Zapomenutý PIN", "🔒 Admin"])
-    
     with t_log:
         with st.form("login"):
             u_in = st.text_input("Přezdívka").strip()
@@ -101,7 +99,6 @@ if not st.session_state.user and not st.session_state.admin:
                     st.session_state.user = match.iloc[0]['user_name']
                     st.rerun()
                 else: st.error("Chybné jméno nebo PIN.")
-
     with t_reg:
         with st.form("reg"):
             u_r = st.text_input("Nová přezdívka").strip()
@@ -116,21 +113,19 @@ if not st.session_state.user and not st.session_state.admin:
                         conn.update(spreadsheet=URL, worksheet="Users", data=pd.concat([df_u, new_u], ignore_index=True))
                         st.cache_data.clear(); st.success("Registrace OK! Přejdi na Přihlášení.")
                 else: st.error("Vyplň všechna pole!")
-
     with t_for:
         with st.form("recovery"):
             u_f = st.text_input("Přezdívka").strip()
             ph_f = st.text_input("3 čísla mobilu").strip()
             if st.form_submit_button("Ukázat můj PIN"):
-                match = df_u[(df_u['user_name'].str.lower() == u_f.lower()) & (df_u['phone_last'] == ph_f)]
+                # Zde se porovnává se zfill(3), aby i hledané číslo mělo nulu
+                match = df_u[(df_u['user_name'].str.lower() == u_f.lower()) & (df_u['phone_last'] == ph_f.zfill(3))]
                 if not match.empty: st.success(f"Tvůj PIN je: **{match.iloc[0]['pin']}**")
                 else: st.error("Nenalezeno.")
-
     with t_adm:
         a_pw = st.text_input("Admin heslo", type="password")
         if st.button("Vstoupit do administrace"):
-            if a_pw == "hokej2026":
-                st.session_state.admin = True; st.rerun()
+            if a_pw == "hokej2026": st.session_state.admin = True; st.rerun()
 
 # --- 2. ADMIN SEKCE ---
 elif st.session_state.admin:
@@ -163,18 +158,14 @@ elif st.session_state.admin:
 else:
     u_row = df_u[df_u['user_name'] == st.session_state.user]
     pts = int(u_row['total_points'].values[0]) if not u_row.empty else 0
-    
     c_h1, c_h2 = st.columns([5, 1])
     c_h1.subheader(f"🏒 {st.session_state.user} | {pts} bodů")
     if c_h2.button("Odhlásit", key="top_logout"): st.session_state.user = None; st.rerun()
-
     t1, t2 = st.tabs(["📝 PŘEHLED ZÁPASŮ", "📊 ŽEBŘÍČEK"])
-    
     with t1:
         st.markdown("### 📋 Seznam všech zápasů")
         now = datetime.now()
         all_matches = df_m.sort_values('internal_datetime', ascending=True)
-        
         for _, m in all_matches.iterrows():
             cid = str(m['match_id'])
             user_bet = df_b[(df_b['user_name'] == st.session_state.user) & (df_b['match_id'] == cid)]
@@ -182,7 +173,6 @@ else:
             is_finished = m['status'] == 'ukončeno'
             lock_time = m['internal_datetime'] + timedelta(minutes=20)
             is_locked = now > lock_time
-            
             if not is_locked and not is_finished:
                 td = lock_time - now
                 status_html = f'<span class="timer-text">⏳ Konec za: {td.days}d {td.seconds//3600}h {(td.seconds//60)%60}m</span>'
@@ -190,7 +180,6 @@ else:
             else:
                 status_html = '<span class="status-badge badge-live">🔒 Uzavřeno</span>' if not is_finished else '<span class="status-badge badge-ok">✅ Ukončeno</span>'
                 c_style = "match-card-locked"
-
             st.markdown(f"""
             <div class="match-card {c_style}">
                 <div class="match-header">
@@ -203,7 +192,6 @@ else:
                     <div style="width:35%;"><img src="{get_flag_url(m['team_b'])}" width="45"><br><span class="team-name">{m['team_b']}</span></div>
                 </div>
             """, unsafe_allow_html=True)
-            
             if is_finished:
                 tip = f"{int(user_bet.iloc[0]['tip_a'])}:{int(user_bet.iloc[0]['tip_b'])}" if has_bet else "Netipnuto"
                 st.markdown(f"<hr style='margin:10px 0'><small>Konečný výsledek. Tvůj tip: <b>{tip}</b> | Zisk: <b>{int(user_bet.iloc[0]['points_earned']) if has_bet else 0} b.</b></small>", unsafe_allow_html=True)
@@ -223,7 +211,6 @@ else:
                                 conn.update(spreadsheet=URL, worksheet="Bets", data=pd.concat([df_b, new_b], ignore_index=True))
                                 st.cache_data.clear(); st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
-
     with t2:
         if not df_u.empty:
             lead = df_u[['user_name', 'total_points']].sort_values('total_points', ascending=False).reset_index(drop=True)
