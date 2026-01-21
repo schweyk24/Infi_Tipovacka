@@ -3,8 +3,25 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta
 
-# --- KONFIGURACE ---
-st.set_page_config(page_title="Infi Tipovačka 2026", layout="wide")
+# --- URL ZDROJE ---
+URL = "https://docs.google.com/spreadsheets/d/1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU/"
+LOGO_URL = "https://raw.githubusercontent.com/schweyk24/Infi_Tipovacka/main/infi_logo_noBG.png"
+
+# --- KONFIGURACE STRÁNKY ---
+st.set_page_config(
+    page_title="Infi Tipovačka 2026",
+    page_icon=LOGO_URL,
+    layout="wide"
+)
+
+# --- PODPORA PRO IPHONE (Apple Touch Icon) ---
+st.markdown(f"""
+    <head>
+        <link rel="apple-touch-icon" href="{LOGO_URL}">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    </head>
+    """, unsafe_allow_html=True)
 
 # --- CSS DESIGN ---
 st.markdown("""
@@ -29,9 +46,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-URL = "https://docs.google.com/spreadsheets/d/1Ujqh0QdVPnp6OA3vOyB7589wPrCf6HJM_JaKDTdp7RU/"
-LOGO_URL = "https://raw.githubusercontent.com/schweyk24/Infi_Tipovacka/main/infi_logo_noBG.png"
-
 # --- FUNKCE ---
 def get_flag_url(team_name):
     t = str(team_name).strip().upper()
@@ -48,7 +62,6 @@ def load_data():
     df_m['internal_datetime'] = pd.to_datetime(df_m['date'].astype(str) + ' ' + df_m['time'].astype(str), dayfirst=True)
     
     if not df_u.empty:
-        # ZDE JE OPRAVA: Převedeme na string a u phone_last doplníme nuly zleva na 3 místa
         df_u['user_name'] = df_u['user_name'].astype(str).str.strip()
         df_u['pin'] = df_u['pin'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         df_u['phone_last'] = df_u['phone_last'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(3)
@@ -118,7 +131,6 @@ if not st.session_state.user and not st.session_state.admin:
             u_f = st.text_input("Přezdívka").strip()
             ph_f = st.text_input("3 čísla mobilu").strip()
             if st.form_submit_button("Ukázat můj PIN"):
-                # Zde se porovnává se zfill(3), aby i hledané číslo mělo nulu
                 match = df_u[(df_u['user_name'].str.lower() == u_f.lower()) & (df_u['phone_last'] == ph_f.zfill(3))]
                 if not match.empty: st.success(f"Tvůj PIN je: **{match.iloc[0]['pin']}**")
                 else: st.error("Nenalezeno.")
