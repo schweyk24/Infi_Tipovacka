@@ -23,26 +23,56 @@ st.markdown(f"""
     </head>
     """, unsafe_allow_html=True)
 
-# --- CSS DESIGN ---
+# --- CSS DESIGN (Opraveno pro Dark/Light Mode) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #ffffff; color: #212529; }
+    /* Kontejner loga */
     .logo-container { display: flex; justify-content: center; padding: 10px 0; }
+    
+    /* Adaptivní karty zápasů */
     .match-card {
-        background-color: white; padding: 20px; border-radius: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08); border: 1px solid #eee;
+        padding: 20px; 
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1); 
+        border: 1px solid rgba(128, 128, 128, 0.2);
         margin-bottom: 15px;
+        background-color: rgba(255, 255, 255, 0.05); /* Jemné pozadí pro dark mode */
     }
-    .match-card-bet { border-left: 8px solid #28a745; background-color: #f8fff9; }
-    .match-card-locked { border-left: 8px solid #adb5bd; background-color: #f8f9fa; color: #6c757d; }
-    .match-header { display: flex; justify-content: space-between; font-size: 0.85em; margin-bottom: 10px; color: #666; }
+    
+    /* Světlý režim specificky pro karty, aby byly čitelné */
+    @media (prefers-color-scheme: light) {
+        .match-card { background-color: #ffffff; border: 1px solid #eee; }
+        .team-name { color: #1a1a1a; }
+        .match-header { color: #444; }
+    }
+
+    /* Barvy okrajů podle stavu */
+    .match-card-bet { border-left: 8px solid #28a745 !important; }
+    .match-card-locked { border-left: 8px solid #6c757d !important; }
+    
+    .match-header { display: flex; justify-content: space-between; font-size: 0.85em; margin-bottom: 10px; font-weight: 500; }
     .team-name { font-weight: bold; font-size: 1.1em; }
-    .timer-text { color: #d32f2f; font-weight: bold; font-family: monospace; }
-    .status-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; }
-    .badge-live { background-color: #ffe3e3; color: #d32f2f; }
-    .badge-ok { background-color: #e3fafc; color: #0b7285; }
-    .info-box { background-color: #f8f9fa; padding: 15px; border-radius: 10px; border-left: 5px solid #28a745; margin-bottom: 20px; }
+    .timer-text { color: #ff4b4b; font-weight: bold; font-family: monospace; }
+    
+    /* Štítky */
+    .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; }
+    .badge-live { background-color: #ff4b4b; color: white; }
+    .badge-ok { background-color: #28a745; color: white; }
+    
+    /* Box s pravidly */
+    .info-box { 
+        padding: 15px; 
+        border-radius: 10px; 
+        border-left: 5px solid #28a745; 
+        margin-bottom: 20px;
+        background-color: rgba(40, 167, 69, 0.1);
+    }
+    
+    /* Skrytí postranního panelu */
     [data-testid="stSidebar"] { display: none; }
+    
+    /* Oprava kontrastu tlačítek v některých verzích prohlížečů */
+    .stButton button { width: 100%; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -185,13 +215,17 @@ else:
             is_finished = m['status'] == 'ukončeno'
             lock_time = m['internal_datetime'] + timedelta(minutes=20)
             is_locked = now > lock_time
+            
             if not is_locked and not is_finished:
                 td = lock_time - now
                 status_html = f'<span class="timer-text">⏳ Konec za: {td.days}d {td.seconds//3600}h {(td.seconds//60)%60}m</span>'
-                c_style = "match-card-bet" if has_bet else "match-card"
+                c_style = "match-card-bet" if has_bet else "" # Standardní bez okraje
             else:
-                status_html = '<span class="status-badge badge-live">🔒 Uzavřeno</span>' if not is_finished else '<span class="status-badge badge-ok">✅ Ukončeno</span>'
+                s_txt = "🔒 Uzavřeno" if not is_finished else "✅ Ukončeno"
+                s_cls = "badge-live" if not is_finished else "badge-ok"
+                status_html = f'<span class="status-badge {s_cls}">{s_txt}</span>'
                 c_style = "match-card-locked"
+
             st.markdown(f"""
             <div class="match-card {c_style}">
                 <div class="match-header">
@@ -204,14 +238,15 @@ else:
                     <div style="width:35%;"><img src="{get_flag_url(m['team_b'])}" width="45"><br><span class="team-name">{m['team_b']}</span></div>
                 </div>
             """, unsafe_allow_html=True)
+            
             if is_finished:
                 tip = f"{int(user_bet.iloc[0]['tip_a'])}:{int(user_bet.iloc[0]['tip_b'])}" if has_bet else "Netipnuto"
-                st.markdown(f"<hr style='margin:10px 0'><small>Konečný výsledek. Tvůj tip: <b>{tip}</b> | Zisk: <b>{int(user_bet.iloc[0]['points_earned']) if has_bet else 0} b.</b></small>", unsafe_allow_html=True)
+                st.markdown(f"<hr style='margin:10px 0; opacity:0.2;'><small>Konečný výsledek. Tvůj tip: <b>{tip}</b> | Zisk: <b>{int(user_bet.iloc[0]['points_earned']) if has_bet else 0} b.</b></small>", unsafe_allow_html=True)
             elif is_locked:
-                if has_bet: st.markdown(f"<hr style='margin:10px 0'><small>Tvůj tip: <b>{int(user_bet.iloc[0]['tip_a'])}:{int(user_bet.iloc[0]['tip_b'])}</b> (Probíhá)</small>", unsafe_allow_html=True)
-                else: st.markdown("<hr style='margin:10px 0'><small style='color:red;'>Na tento zápas už nelze tipovat.</small>", unsafe_allow_html=True)
+                if has_bet: st.markdown(f"<hr style='margin:10px 0; opacity:0.2;'><small>Tvůj tip: <b>{int(user_bet.iloc[0]['tip_a'])}:{int(user_bet.iloc[0]['tip_b'])}</b> (Probíhá)</small>", unsafe_allow_html=True)
+                else: st.markdown("<hr style='margin:10px 0; opacity:0.2;'><small style='color:#ff4b4b;'>Na tento zápas už nelze tipovat.</small>", unsafe_allow_html=True)
             else:
-                if has_bet: st.markdown(f"<hr style='margin:10px 0'><small style='color:green;'>✅ Natipováno: <b>{int(user_bet.iloc[0]['tip_a'])}:{int(user_bet.iloc[0]['tip_b'])}</b></small>", unsafe_allow_html=True)
+                if has_bet: st.markdown(f"<hr style='margin:10px 0; opacity:0.2;'><small style='color:#28a745;'>✅ Natipováno: <b>{int(user_bet.iloc[0]['tip_a'])}:{int(user_bet.iloc[0]['tip_b'])}</b></small>", unsafe_allow_html=True)
                 else:
                     with st.expander("➕ ODESLAT TIP"):
                         with st.form(key=f"f{cid}"):
@@ -223,6 +258,7 @@ else:
                                 conn.update(spreadsheet=URL, worksheet="Bets", data=pd.concat([df_b, new_b], ignore_index=True))
                                 st.cache_data.clear(); st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
+            
     with t2:
         if not df_u.empty:
             lead = df_u[['user_name', 'total_points']].sort_values('total_points', ascending=False).reset_index(drop=True)
