@@ -11,6 +11,9 @@ LOGO_URL = "https://raw.githubusercontent.com/schweyk24/Infi_Tipovacka/main/infi
 
 st.set_page_config(page_title="Infi Tipovačka 2026", page_icon=LOGO_URL, layout="wide")
 
+# --- GLOBÁLNÍ PŘIPOJENÍ (Mimo cache - prevence RecursionError) ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 # --- CSS STYLY ---
 st.markdown(f"""
     <style>
@@ -56,59 +59,71 @@ def calculate_points(tip_a, tip_b, res_a, res_b):
 
 @st.cache_data(ttl=10)
 def load_data():
-    conn = st.connection("gsheets", type=GSheetsConnection)
+    # Načítání dat bez vracení 'conn' objektu
     df_m = conn.read(spreadsheet=URL, worksheet="Matches", ttl=0).dropna(how='all')
     df_b = conn.read(spreadsheet=URL, worksheet="Bets", ttl=0).dropna(how='all')
     df_u = conn.read(spreadsheet=URL, worksheet="Users", ttl=0).dropna(how='all')
+    
     df_m['match_id'] = df_m['match_id'].astype(str)
-    df_m['internal_datetime'] = pd.to_datetime(df_m['date'].astype(str) + ' ' + df_m['time'].astype(str), dayfirst=True).dt.tz_localize(PRG)
-    return conn, df_m, df_b, df_u
+    # Bezpečný převod času
+    df_m['internal_datetime'] = pd.to_datetime(
+        df_m['date'].astype(str) + ' ' + df_m['time'].astype(str), 
+        dayfirst=True
+    ).dt.tz_localize(PRG)
+    
+    return df_m, df_b, df_u
 
-conn, df_m, df_b, df_u = load_data()
+# Načtení dat do aplikace
+df_m, df_b, df_u = load_data()
 
-# --- AUTENTIZACE PŘES URL (QR TOKEN) ---
-if 'user' not in st.session_state:
+# --- SESSION STATE ---
+if 'user' not in st.session_state: st.session_state.user = None
+if 'admin' not in st.session_state: st.session_state.admin = False
+if 'reg_mode' not in st.session_state: st.session_state.reg_mode = None
+
+# --- LOGIKA AUTOMATICKÉHO PŘIHLÁŠENÍ (QR TOKEN) ---
+if not st.session_state.user and not st.session_state.admin:
     token_url = st.query_params.get("token")
     if token_url and not df_u.empty:
         user_match = df_u[df_u['token'] == token_url]
         if not user_match.empty:
-            # Token existuje
             u_row = user_match.iloc[0]
-            if pd.isna(u_row['user_name']) or u_row['user_name'] == "":
-                st.session_state.reg_mode = token_url # Povolíme registraci pro tento prázdný token
+            # Pokud je token v tabulce, ale nemá jméno -> Registrace
+            if pd.isna(u_row['user_name']) or str(u_row['user_name']).strip() == "":
+                st.session_state.reg_mode = token_url
             else:
-                st.session_state.user = u_row['user_name'] # Automatický login
+                # Token má jméno -> Automatický Login
+                st.session_state.user = u_row['user_name']
                 st.rerun()
 
-if 'user' not in st.session_state: st.session_state.user = None
-if 'admin' not in st.session_state: st.session_state.admin = False
-
 # --- UI - LOGO ---
-st.markdown(f'<div style="text-align:center; padding:20px;"><img src="{LOGO_URL}" width="220"></div>', unsafe_allow_html=True)
+st.markdown(f'<div style="text-align:center; padding:10px;"><img src="{LOGO_URL}" width="200"></div>', unsafe_allow_html=True)
 
 # --- 1. LOGIN / REGISTRACE ---
 if not st.session_state.user and not st.session_state.admin:
     
-    if st.session_state.get('reg_mode'):
-        st.subheader("📝 Registrace nového hráče")
+    if st.session_state.reg_mode:
+        st.subheader("📝 Aktivace tvého QR kódu")
         with st.form("new_player"):
-            new_n = st.text_input("Tvoje přezdívka (viditelná v žebříčku)").strip()
-            new_p = st.text_input("PIN (4 čísla - pro ruční přihlášení)", type="password", max_chars=4).strip()
-            new_e = st.text_input("E-mail (pro kontakt výherce)").strip()
-            if st.form_submit_button("Aktivovat můj QR kód"):
+            new_n = st.text_input("Tvoje přezdívka").strip()
+            new_p = st.text_input("PIN (4 čísla)", type="password", max_chars=4).strip()
+            if st.form_submit_button("Začít tipovat"):
                 if new_n and len(new_p) == 4:
-                    # Najdeme řádek s tokenem a aktualizujeme ho
-                    mask = df_u['token'] == st.session_state.reg_mode
-                    df_u.loc[mask, ['user_name', 'pin', 'email', 'total_points']] = [new_n, new_p, new_e, 0]
-                    conn.update(spreadsheet=URL, worksheet="Users", data=df_u)
-                    st.session_state.user = new_n
-                    st.session_state.reg_mode = None
-                    st.cache_data.clear()
-                    st.rerun()
-                else: st.error("Vyplň jméno a 4místný PIN.")
+                    if new_n in df_u['user_name'].values:
+                        st.error("Tato přezdívka už existuje. Zvol jinou.")
+                    else:
+                        mask = df_u['token'] == st.session_state.reg_mode
+                        df_u.loc[mask, ['user_name', 'pin', 'total_points']] = [new_n, new_p, 0]
+                        conn.update(spreadsheet=URL, worksheet="Users", data=df_u)
+                        st.session_state.user = new_n
+                        st.session_state.reg_mode = None
+                        st.cache_data.clear()
+                        st.rerun()
+                else: st.error("Zadej jméno a 4místný PIN.")
     else:
-        tab_log, tab_info, tab_adm = st.tabs(["🔑 Přihlášení", "ℹ️ Jak hrát", "🔒 Admin"])
+        tab_log, tab_adm = st.tabs(["🔑 Přihlášení", "🔒 Admin"])
         with tab_log:
+            st.info("Skenuj svůj QR kód pro vstup, nebo se přihlas ručně:")
             with st.form("manual_login"):
                 u_in = st.text_input("Přezdívka")
                 p_in = st.text_input("PIN", type="password")
@@ -118,37 +133,42 @@ if not st.session_state.user and not st.session_state.admin:
                         st.session_state.user = user_row.iloc[0]['user_name']
                         st.rerun()
                     else: st.error("Chybné jméno nebo PIN.")
-        with tab_info:
-            st.info("Skenuj svůj unikátní QR kód pro automatické přihlášení. Pokud ho nemáš, vyžádej si ho u obsluhy.")
         with tab_adm:
-            a_pw = st.text_input("Heslo", type="password")
+            a_pw = st.text_input("Admin heslo", type="password")
             if st.button("Vstup pro personál"):
-                if a_pw == "hokej2026":
+                if a_pw == "hokej2026": # Zde ideálně st.secrets["admin_password"]
                     st.session_state.admin = True
                     st.rerun()
 
 # --- 2. ADMIN SEKCE ---
 elif st.session_state.admin:
-    st.title("⚙️ Admin Panel")
-    if st.button("⬅️ Zpět"): st.session_state.admin = False; st.rerun()
+    st.title("⚙️ Administrace")
+    if st.button("⬅️ Zpět do baru"): st.session_state.admin = False; st.rerun()
     
-    # Vyhodnocení (zkrácená verze tvé logiky)
-    active = df_m[df_m['status'] != 'ukončeno'].sort_values('internal_datetime')
-    for _, m in active.iterrows():
-        with st.expander(f"Zapsat skóre: {m['team_a']} vs {m['team_b']}"):
+    to_score = df_m[df_m['status'] != 'ukončeno'].sort_values('internal_datetime')
+    st.subheader("Vyhodnocení zápasů")
+    for _, m in to_score.iterrows():
+        with st.expander(f"{m['team_a']} vs {m['team_b']}"):
             c1, c2, c3 = st.columns(3)
-            rA = c1.number_input("A", 0, 20, key=f"rA{m['match_id']}")
-            rB = c2.number_input("B", 0, 20, key=f"rB{m['match_id']}")
+            rA = c1.number_input("Skóre A", 0, 20, key=f"rA{m['match_id']}")
+            rB = c2.number_input("Skóre B", 0, 20, key=f"rB{m['match_id']}")
             if c3.button("Uložit", key=f"s{m['match_id']}"):
+                # Update Matches
                 df_m.loc[df_m['match_id'] == m['match_id'], ['result_a', 'result_b', 'status']] = [rA, rB, 'ukončeno']
+                # Bodování
                 if not df_b.empty:
-                    df_b['points_earned'] = df_b.apply(lambda x: calculate_points(x['tip_a'], x['tip_b'], rA, rB) if x['match_id'] == m['match_id'] else x['points_earned'], axis=1)
-                user_sums = df_b.groupby('user_name')['points_earned'].sum().reset_index()
-                df_u = df_u.drop(columns=['total_points'], errors='ignore').merge(user_sums, on='user_name', how='left').fillna(0).rename(columns={'points_earned': 'total_points'})
+                    m_mask = df_b['match_id'] == m['match_id']
+                    df_b.loc[m_mask, 'points_earned'] = df_b[m_mask].apply(lambda x: calculate_points(x['tip_a'], x['tip_b'], rA, rB), axis=1)
+                # Přepočet Users
+                user_points = df_b.groupby('user_name')['points_earned'].sum().reset_index()
+                df_u = df_u.drop(columns=['total_points'], errors='ignore').merge(user_points, on='user_name', how='left').fillna(0).rename(columns={'points_earned':'total_points'})
+                
                 conn.update(spreadsheet=URL, worksheet="Matches", data=df_m)
                 conn.update(spreadsheet=URL, worksheet="Bets", data=df_b)
                 conn.update(spreadsheet=URL, worksheet="Users", data=df_u)
-                st.cache_data.clear(); st.rerun()
+                st.cache_data.clear()
+                st.success("Hotovo!")
+                st.rerun()
 
 # --- 3. HRÁČSKÁ SEKCE ---
 else:
@@ -156,7 +176,7 @@ else:
     pts = int(u_row['total_points'].values[0]) if not u_row.empty else 0
     
     st.markdown(f"<div style='display:flex; justify-content:space-between; align-items:center;'><h3>🏒 {st.session_state.user}</h3><h2 style='color:#ff4b4b; margin:0;'>{pts} b.</h2></div>", unsafe_allow_html=True)
-    if st.button("Odhlásit"): st.session_state.user = None; st.rerun()
+    if st.button("Odhlásit", size="small"): st.session_state.user = None; st.rerun()
     
     t1, t2 = st.tabs(["📝 TIPOVÁNÍ", "🏆 ŽEBŘÍČEK"])
     
@@ -167,12 +187,13 @@ else:
             is_locked = now > lock_time
             is_done = m['status'] == 'ukončeno'
             
-            # Status badge
+            # Status Badge
             if is_done: status, b_cls = "Hotovo", "badge-locked"
             elif is_locked: status, b_cls = "Zamknuto", "badge-locked"
             else:
                 rem = lock_time - now
-                status = f"Tipuj! (+{int(rem.total_seconds()//60)}m)" if now > m['internal_datetime'] else f"Start {m['time']}"
+                mins = int(rem.total_seconds() // 60)
+                status = f"Běží 1.tř! ({mins}m)" if now > m['internal_datetime'] else f"Start {m['time']}"
                 b_cls = "badge-open"
 
             st.markdown(f"""
@@ -195,17 +216,18 @@ else:
                 if not u_bet.empty:
                     st.success(f"Tvůj tip: {int(u_bet.iloc[0]['tip_a'])}:{int(u_bet.iloc[0]['tip_b'])}")
                 else:
-                    with st.expander("PODAT TIP"):
+                    with st.expander("VSADIT"):
                         with st.form(key=f"f{m['match_id']}"):
                             c1, c2 = st.columns(2)
                             tA = c1.number_input(str(m['team_a']), 0, 20, key=f"tA{m['match_id']}")
                             tB = c2.number_input(str(m['team_b']), 0, 20, key=f"tB{m['match_id']}")
-                            if st.form_submit_button("Odeslat tip"):
+                            if st.form_submit_button("Odeslat"):
                                 new_b = pd.DataFrame([{"timestamp": now.strftime("%H:%M"), "user_name": st.session_state.user, "match_id": m['match_id'], "tip_a": tA, "tip_b": tB, "points_earned": 0}])
                                 conn.update(spreadsheet=URL, worksheet="Bets", data=pd.concat([df_b, new_b]))
-                                st.cache_data.clear(); st.rerun()
+                                st.cache_data.clear()
+                                st.rerun()
             elif is_done and not u_bet.empty:
-                st.info(f"Tvůj tip: {int(u_bet.iloc[0]['tip_a'])}:{int(u_bet.iloc[0]['tip_b'])} | Zisk: {int(u_bet.iloc[0]['points_earned'])} b.")
+                st.info(f"Tip: {int(u_bet.iloc[0]['tip_a'])}:{int(u_bet.iloc[0]['tip_b'])} | Zisk: {int(u_bet.iloc[0]['points_earned'])} b.")
 
     with t2:
         if not df_u.empty:
